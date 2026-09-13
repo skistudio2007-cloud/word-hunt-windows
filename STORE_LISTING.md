@@ -81,3 +81,9 @@ Download now and start your word journey today!
 12. Trophies & Collections: Unlock badges, level milestones, and track your personal word-hunting statistics.
 13. Instant Auto-Save: Never lose your journey progress, coins, stars, or level unlocks.
 14. Lightweight & Battery Efficient: Fast loading with zero bloatware and minimal battery consumption.
+
+## 9. Copyright & Trademark Info (For Microsoft Store)
+- **Standard Copyright Line (Recommended)**:
+  `© 2026 Word Hunt Windows / skistudio2007-cloud. All rights reserved.`
+- **Full Legal Notice**:
+  `Copyright © 2026 Word Hunt Windows / skistudio2007-cloud. All rights reserved. All trademarks, logos, audio, and visual assets are proprietary to the developer.`
