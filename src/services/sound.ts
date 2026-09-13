@@ -1,0 +1,338 @@
+/**
+ * Audio Synthesizer Engine for WORD HUNT
+ * Uses the Web Audio API for zero-latency, realistic, soothing sound effects & ambient music
+ */
+
+class SoundEngine {
+  private ctx: AudioContext | null = null;
+  private musicGainNode: GainNode | null = null;
+  private soundGainNode: GainNode | null = null;
+  private isMusicPlaying = false;
+  private musicInterval: number | null = null;
+  private soundEnabled = true;
+  private musicEnabled = true;
+  private soundVolume = 0.8;
+  private musicVolume = 0.5;
+  private vibrationEnabled = true;
+
+  private initContext() {
+    if (!this.ctx) {
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioContextClass) {
+        this.ctx = new AudioContextClass();
+        
+        this.soundGainNode = this.ctx.createGain();
+        this.soundGainNode.gain.value = this.soundVolume;
+        this.soundGainNode.connect(this.ctx.destination);
+
+        this.musicGainNode = this.ctx.createGain();
+        this.musicGainNode.gain.value = this.musicVolume;
+        this.musicGainNode.connect(this.ctx.destination);
+      }
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+  }
+
+  public updateSettings(sound: boolean, soundVol: number, music: boolean, musicVol: number, vibration: boolean) {
+    this.soundEnabled = sound;
+    this.soundVolume = soundVol;
+    this.musicEnabled = music;
+    this.musicVolume = musicVol;
+    this.vibrationEnabled = vibration;
+
+    if (this.soundGainNode && this.ctx) {
+      this.soundGainNode.gain.setValueAtTime(this.soundEnabled ? this.soundVolume : 0, this.ctx.currentTime);
+    }
+    if (this.musicGainNode && this.ctx) {
+      this.musicGainNode.gain.setValueAtTime(this.musicEnabled ? this.musicVolume * 0.35 : 0, this.ctx.currentTime);
+    }
+
+    if (this.musicEnabled && !this.isMusicPlaying) {
+      this.startAmbientMusic();
+    } else if (!this.musicEnabled && this.isMusicPlaying) {
+      this.stopAmbientMusic();
+    }
+  }
+
+  public playTap() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.soundGainNode) return;
+
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      
+      osc.type = 'sine';
+      const now = this.ctx.currentTime;
+      osc.frequency.setValueAtTime(480, now);
+      osc.frequency.exponentialRampToValueAtTime(320, now + 0.05);
+
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+
+      osc.connect(gain);
+      gain.connect(this.soundGainNode);
+
+      osc.start(now);
+      osc.stop(now + 0.05);
+    } catch {
+      // Audio fallback
+    }
+  }
+
+  public playLetterSnap(index: number) {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.soundGainNode) return;
+
+    try {
+      const pentatonicScale = [392.00, 440.00, 523.25, 587.33, 659.25, 783.99, 880.00, 1046.50]; // G4 to C6
+      const noteFreq = pentatonicScale[Math.min(index, pentatonicScale.length - 1)];
+
+      const osc = this.ctx.createOscillator();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      const now = this.ctx.currentTime;
+      osc.frequency.setValueAtTime(noteFreq, now);
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1800, now);
+
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.soundGainNode);
+
+      osc.start(now);
+      osc.stop(now + 0.09);
+
+      this.vibrate(10);
+    } catch {}
+  }
+
+  public playWordSuccess() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.soundGainNode) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6 (Bright cheerful chord)
+
+      notes.forEach((freq, idx) => {
+        const osc = this.ctx!.createOscillator();
+        const gain = this.ctx!.createGain();
+
+        osc.type = 'sine';
+        const start = now + idx * 0.045;
+        osc.frequency.setValueAtTime(freq, start);
+
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(0.28, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.45);
+
+        osc.connect(gain);
+        gain.connect(this.soundGainNode!);
+
+        osc.start(start);
+        osc.stop(start + 0.45);
+      });
+
+      this.vibrate([20, 30, 40]);
+    } catch {}
+  }
+
+  public playWordFail() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.soundGainNode) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(260, now);
+      osc.frequency.exponentialRampToValueAtTime(180, now + 0.12);
+
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+      osc.connect(gain);
+      gain.connect(this.soundGainNode);
+
+      osc.start(now);
+      osc.stop(now + 0.12);
+
+      this.vibrate(15);
+    } catch {}
+  }
+
+  public playStarPop(index: number) {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.soundGainNode) return;
+
+    try {
+      const notes = [659.25, 783.99, 1046.50]; // E5, G5, C6
+      const freq = notes[Math.min(index, notes.length - 1)];
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      const now = this.ctx.currentTime;
+      osc.frequency.setValueAtTime(freq, now);
+      osc.frequency.exponentialRampToValueAtTime(freq * 1.25, now + 0.12);
+
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+
+      osc.connect(gain);
+      gain.connect(this.soundGainNode);
+
+      osc.start(now);
+      osc.stop(now + 0.18);
+
+      this.vibrate(25);
+    } catch {}
+  }
+
+  public playLevelVictory() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.soundGainNode) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      const melody = [
+        { f: 523.25, t: 0 },    // C5
+        { f: 659.25, t: 0.12 }, // E5
+        { f: 783.99, t: 0.24 }, // G5
+        { f: 1046.50, t: 0.36 }, // C6
+        { f: 880.00, t: 0.48 }, // A5
+        { f: 1046.50, t: 0.60 }, // C6 (sustained)
+      ];
+
+      melody.forEach(item => {
+        const osc = this.ctx!.createOscillator();
+        const gain = this.ctx!.createGain();
+
+        osc.type = 'triangle';
+        const start = now + item.t;
+        osc.frequency.setValueAtTime(item.f, start);
+
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(0.3, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.5);
+
+        osc.connect(gain);
+        gain.connect(this.soundGainNode!);
+
+        osc.start(start);
+        osc.stop(start + 0.5);
+      });
+
+      this.vibrate([40, 50, 40, 50, 80]);
+    } catch {}
+  }
+
+  public playHintSparkle() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.soundGainNode) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      for (let i = 0; i < 4; i++) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        const start = now + i * 0.06;
+        osc.frequency.setValueAtTime(800 + i * 260, start);
+        gain.gain.setValueAtTime(0.18, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.18);
+
+        osc.connect(gain);
+        gain.connect(this.soundGainNode);
+        osc.start(start);
+        osc.stop(start + 0.18);
+      }
+    } catch {}
+  }
+
+  public startAmbientMusic() {
+    if (this.isMusicPlaying || !this.musicEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.musicGainNode) return;
+
+    this.isMusicPlaying = true;
+    const chords = [
+      [261.63, 329.63, 392.00], // C Maj
+      [220.00, 261.63, 329.63], // A min
+      [174.61, 220.00, 261.63], // F Maj
+      [196.00, 246.94, 293.66], // G Maj
+    ];
+    let chordIdx = 0;
+
+    const playChordStep = () => {
+      if (!this.isMusicPlaying || !this.ctx || !this.musicGainNode || !this.musicEnabled) return;
+      try {
+        const now = this.ctx.currentTime;
+        const currentChord = chords[chordIdx % chords.length];
+        chordIdx++;
+
+        currentChord.forEach(freq => {
+          const osc = this.ctx!.createOscillator();
+          const filter = this.ctx!.createBiquadFilter();
+          const gain = this.ctx!.createGain();
+
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now);
+
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(600, now);
+
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.linearRampToValueAtTime(0.08, now + 1.2);
+          gain.gain.linearRampToValueAtTime(0.001, now + 3.8);
+
+          osc.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.musicGainNode!);
+
+          osc.start(now);
+          osc.stop(now + 4.0);
+        });
+      } catch {}
+    };
+
+    playChordStep();
+    this.musicInterval = window.setInterval(playChordStep, 4200);
+  }
+
+  public stopAmbientMusic() {
+    this.isMusicPlaying = false;
+    if (this.musicInterval !== null) {
+      clearInterval(this.musicInterval);
+      this.musicInterval = null;
+    }
+  }
+
+  private vibrate(pattern: number | number[]) {
+    if (!this.vibrationEnabled || typeof window === 'undefined' || !window.navigator?.vibrate) return;
+    try {
+      window.navigator.vibrate(pattern);
+    } catch {}
+  }
+}
+
+export const soundManager = new SoundEngine();

@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@theme {
+  --animate-fall-tile: fallTile 10s linear infinite;
+  --animate-pulse-glow: pulseGlow 10s ease-in-out infinite;
+  --animate-gentle-sway: gentleSway 4s ease-in-out infinite;
+
+  @keyframes fallTile {
+    0% {
+      transform: translateY(-90px) rotate(0deg);
+      opacity: 0;
+    }
+    8% {
+      opacity: 0.95;
+    }
+    92% {
+      opacity: 0.95;
+    }
+    100% {
+      transform: translateY(115vh) rotate(360deg);
+      opacity: 0;
+    }
+  }
+
+  @keyframes gentleSway {
+    0%, 100% {
+      transform: translateY(0px) rotate(-4deg);
+    }
+    50% {
+      transform: translateY(-18px) rotate(4deg);
+    }
+  }
+
+  @keyframes pulseGlow {
+    0%, 100% {
+      transform: scale(1) translate(0, 0);
+      opacity: 0.25;
+    }
+    50% {
+      transform: scale(1.25) translate(30px, -20px);
+      opacity: 0.45;
+    }
+  }
+
+  @keyframes shimmerGleam {
+    0% { transform: translateX(-150%) skewX(-20deg); }
+    100% { transform: translateX(250%) skewX(-20deg); }
+  }
+}
+
