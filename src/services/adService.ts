@@ -4,20 +4,33 @@
  */
 
 export interface AdConfig {
+  appId: string;
   rewardedAdUnitId: string;
+  interstitialAdUnitId: string;
   isTestMode: boolean;
 }
 
-// Google AdMob standard test rewarded video ad unit ID
+// Google AdMob configuration (Official User Production AdMob IDs)
 export const DEFAULT_AD_CONFIG: AdConfig = {
-  rewardedAdUnitId: 'ca-app-pub-3940256099942544/5224354917', // Test Ad Unit ID
-  isTestMode: true
+  appId: 'ca-app-pub-2007565791914092~7531337749',
+  rewardedAdUnitId: 'ca-app-pub-2007565791914092/1828806113', // User Rewarded Video Ad Unit ID
+  interstitialAdUnitId: 'ca-app-pub-2007565791914092/4518161594', // User Interstitial Ad Unit ID
+  isTestMode: false
 };
 
 class RewardedAdService {
   private config: AdConfig = { ...DEFAULT_AD_CONFIG };
   private isAdPlaying: boolean = false;
   private isAdAvailable: boolean = true;
+
+  /**
+   * Checks if an ad should be displayed at level milestone.
+   * Starts at Level 10, then triggers every 6 levels (10, 16, 22, 28, 34, ...).
+   */
+  public shouldShowLevelMilestoneAd(completedLevel: number, hasRemovedAds: boolean = false): boolean {
+    if (hasRemovedAds) return false;
+    return completedLevel >= 10 && (completedLevel - 10) % 6 === 0;
+  }
 
   /**
    * Set production or custom ad unit ID dynamically

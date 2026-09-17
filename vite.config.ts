@@ -12,22 +12,9 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
-    build: {
-      sourcemap: false,
-      minify: 'esbuild' as const,
-      cssMinify: true,
-      rollupOptions: {
-        output: {
-          banner: '/*! © 2026 Word Hunt Windows. All Rights Reserved. Proprietary and Confidential. Unauthorized copying, inspection, or reverse engineering is strictly prohibited. */',
-        },
-      },
-    },
-    esbuild: {
-      legalComments: 'none' as const,
-    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify—file watching is disabled to prevent flickering during agent edits.
+      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},

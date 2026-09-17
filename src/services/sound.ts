@@ -15,6 +15,19 @@ class SoundEngine {
   private musicVolume = 0.5;
   private vibrationEnabled = true;
 
+  constructor() {
+    if (typeof window !== 'undefined') {
+      const unlockAudio = () => {
+        this.initContext();
+        if (this.musicEnabled && !this.isMusicPlaying) {
+          this.startAmbientMusic();
+        }
+      };
+      window.addEventListener('pointerdown', unlockAudio, { once: true });
+      window.addEventListener('keydown', unlockAudio, { once: true });
+    }
+  }
+
   private initContext() {
     if (!this.ctx) {
       const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -275,48 +288,143 @@ class SoundEngine {
     if (!this.ctx || !this.musicGainNode) return;
 
     this.isMusicPlaying = true;
-    const chords = [
-      [261.63, 329.63, 392.00], // C Maj
-      [220.00, 261.63, 329.63], // A min
-      [174.61, 220.00, 261.63], // F Maj
-      [196.00, 246.94, 293.66], // G Maj
+
+    // Rich, soothing 6-chord ambient journey (Cmaj9 -> Am9 -> Fmaj7#11 -> Gadd9 -> Em9 -> Dm9)
+    const ambientProgression = [
+      {
+        bass: 65.41, // C2
+        pad: [130.81, 196.00, 246.94, 329.63, 587.33], // C3, G3, B3, E4, D5
+        melody: [523.25, 587.33, 659.25, 783.99, 987.77, 1046.50] // C5, D5, E5, G5, B5, C6
+      },
+      {
+        bass: 55.00, // A1
+        pad: [110.00, 164.81, 196.00, 261.63, 493.88], // A2, E3, G3, C4, B4
+        melody: [440.00, 523.25, 659.25, 783.99, 880.00, 1046.50] // A4, C5, E5, G5, A5, C6
+      },
+      {
+        bass: 43.65, // F1
+        pad: [87.31, 130.81, 164.81, 220.00, 369.99], // F2, C3, E3, A3, F#4
+        melody: [523.25, 659.25, 739.99, 783.99, 880.00, 1046.50] // C5, E5, F#5, G5, A5, C6
+      },
+      {
+        bass: 49.00, // G1
+        pad: [98.00, 146.83, 196.00, 246.94, 329.63], // G2, D3, G3, B3, E4
+        melody: [587.33, 659.25, 783.99, 880.00, 1046.50, 1174.66] // D5, E5, G5, A5, C6, D6
+      },
+      {
+        bass: 41.20, // E1
+        pad: [82.41, 123.47, 164.81, 246.94, 293.66], // E2, B2, E3, B3, D4
+        melody: [493.88, 587.33, 659.25, 783.99, 987.77, 1174.66] // B4, D5, E5, G5, B5, D6
+      },
+      {
+        bass: 36.71, // D1
+        pad: [73.42, 110.00, 146.83, 220.00, 261.63], // D2, A2, D3, A3, C4
+        melody: [440.00, 523.25, 587.33, 659.25, 783.99, 880.00] // A4, C5, D5, E5, G5, A5
+      }
     ];
+
     let chordIdx = 0;
+    const STEP_DURATION = 5.2; // seconds per chord
 
     const playChordStep = () => {
       if (!this.isMusicPlaying || !this.ctx || !this.musicGainNode || !this.musicEnabled) return;
       try {
         const now = this.ctx.currentTime;
-        const currentChord = chords[chordIdx % chords.length];
+        const currentChord = ambientProgression[chordIdx % ambientProgression.length];
         chordIdx++;
 
-        currentChord.forEach(freq => {
-          const osc = this.ctx!.createOscillator();
-          const filter = this.ctx!.createBiquadFilter();
-          const gain = this.ctx!.createGain();
+        // 1. Warm Sub Bass (Grounding)
+        const bassOsc = this.ctx.createOscillator();
+        const bassGain = this.ctx.createGain();
+        bassOsc.type = 'sine';
+        bassOsc.frequency.setValueAtTime(currentChord.bass, now);
+        bassGain.gain.setValueAtTime(0.001, now);
+        bassGain.gain.linearRampToValueAtTime(0.08, now + 1.6);
+        bassGain.gain.linearRampToValueAtTime(0.001, now + STEP_DURATION + 0.8);
+        bassOsc.connect(bassGain);
+        bassGain.connect(this.musicGainNode);
+        bassOsc.start(now);
+        bassOsc.stop(now + STEP_DURATION + 1.0);
 
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, now);
+        // 2. Lush Ambient Pad Layer (Soft breathing swells with dual detuning)
+        currentChord.pad.forEach((freq, i) => {
+          [-4, 4].forEach(detune => {
+            const osc = this.ctx!.createOscillator();
+            const filter = this.ctx!.createBiquadFilter();
+            const gain = this.ctx!.createGain();
 
-          filter.type = 'lowpass';
-          filter.frequency.setValueAtTime(600, now);
+            osc.type = i % 2 === 0 ? 'sine' : 'triangle';
+            osc.frequency.setValueAtTime(freq, now);
+            osc.detune.setValueAtTime(detune, now);
 
-          gain.gain.setValueAtTime(0.001, now);
-          gain.gain.linearRampToValueAtTime(0.08, now + 1.2);
-          gain.gain.linearRampToValueAtTime(0.001, now + 3.8);
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(480, now);
+            filter.frequency.linearRampToValueAtTime(680, now + 2.2);
+            filter.frequency.linearRampToValueAtTime(450, now + STEP_DURATION + 0.6);
 
-          osc.connect(filter);
-          filter.connect(gain);
-          gain.connect(this.musicGainNode!);
+            gain.gain.setValueAtTime(0.001, now);
+            gain.gain.linearRampToValueAtTime(0.035, now + 1.8);
+            gain.gain.linearRampToValueAtTime(0.001, now + STEP_DURATION + 0.8);
 
-          osc.start(now);
-          osc.stop(now + 4.0);
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.musicGainNode!);
+
+            osc.start(now);
+            osc.stop(now + STEP_DURATION + 1.0);
+          });
+        });
+
+        // 3. Gentle Kalimba / Celeste Melodic Plucks (Sparkling, peaceful notes)
+        const noteOffsets = [0.6, 2.2, 3.8];
+        noteOffsets.forEach((offset, idx) => {
+          const noteTime = now + offset;
+          const randomNote = currentChord.melody[(chordIdx * 2 + idx) % currentChord.melody.length];
+
+          // Core bell tone
+          const pluckOsc = this.ctx!.createOscillator();
+          const pluckFilter = this.ctx!.createBiquadFilter();
+          const pluckGain = this.ctx!.createGain();
+
+          pluckOsc.type = 'triangle';
+          pluckOsc.frequency.setValueAtTime(randomNote, noteTime);
+
+          pluckFilter.type = 'lowpass';
+          pluckFilter.frequency.setValueAtTime(2200, noteTime);
+          pluckFilter.frequency.exponentialRampToValueAtTime(600, noteTime + 1.4);
+
+          pluckGain.gain.setValueAtTime(0.001, noteTime);
+          pluckGain.gain.linearRampToValueAtTime(0.045, noteTime + 0.02);
+          pluckGain.gain.exponentialRampToValueAtTime(0.001, noteTime + 1.4);
+
+          pluckOsc.connect(pluckFilter);
+          pluckFilter.connect(pluckGain);
+          pluckGain.connect(this.musicGainNode!);
+
+          pluckOsc.start(noteTime);
+          pluckOsc.stop(noteTime + 1.5);
+
+          // Glassy chime shimmer overtone
+          const shimmerOsc = this.ctx!.createOscillator();
+          const shimmerGain = this.ctx!.createGain();
+          shimmerOsc.type = 'sine';
+          shimmerOsc.frequency.setValueAtTime(randomNote * 2, noteTime);
+
+          shimmerGain.gain.setValueAtTime(0.001, noteTime);
+          shimmerGain.gain.linearRampToValueAtTime(0.015, noteTime + 0.015);
+          shimmerGain.gain.exponentialRampToValueAtTime(0.0001, noteTime + 0.6);
+
+          shimmerOsc.connect(shimmerGain);
+          shimmerGain.connect(this.musicGainNode!);
+
+          shimmerOsc.start(noteTime);
+          shimmerOsc.stop(noteTime + 0.7);
         });
       } catch {}
     };
 
     playChordStep();
-    this.musicInterval = window.setInterval(playChordStep, 4200);
+    this.musicInterval = window.setInterval(playChordStep, STEP_DURATION * 1000);
   }
 
   public stopAmbientMusic() {
@@ -324,6 +432,10 @@ class SoundEngine {
     if (this.musicInterval !== null) {
       clearInterval(this.musicInterval);
       this.musicInterval = null;
+    }
+    if (this.musicGainNode && this.ctx) {
+      this.musicGainNode.gain.setValueAtTime(this.musicGainNode.gain.value, this.ctx.currentTime);
+      this.musicGainNode.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.6);
     }
   }
 

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Home, Compass, Swords, Settings as SettingsIcon, Star, Volume2, VolumeX, Lightbulb, Maximize2, Minimize2 } from 'lucide-react';
 import { 
   GameState, 
   NavigationTab, 
@@ -14,6 +13,7 @@ import {
 import { generatePuzzle, generateDailyPuzzle, generateChallengePuzzle } from './services/puzzleGenerator';
 import { StorageService, DEFAULT_PROGRESS, DEFAULT_SETTINGS } from './services/storage';
 import { soundManager } from './services/sound';
+import { adService } from './services/adService';
 import { getWorldForLevel } from './data/worlds';
 
 import { BottomNav } from './components/BottomNav';
@@ -21,20 +21,49 @@ import { HomeScreen } from './components/HomeScreen';
 import { CollectionScreen } from './components/CollectionScreen';
 import { ChallengeScreen } from './components/ChallengeScreen';
 import { SettingsScreen } from './components/SettingsScreen';
-import { GameBackground } from './components/GameBackground';
 
 import { TopHeader } from './components/TopHeader';
 import { LetterGrid } from './components/LetterGrid';
 import { WordList } from './components/WordList';
 import { LevelCompleteModal } from './components/LevelCompleteModal';
+import { RewardedAdModal } from './components/RewardedAdModal';
+import { InterstitialAdModal } from './components/InterstitialAdModal';
 import { WordDefinitionDrawer } from './components/WordDefinitionDrawer';
 import { TutorialOverlay } from './components/TutorialOverlay';
-import { WorldJourney } from './components/WorldJourney';
-import { RateUsModal } from './components/RateUsModal';
+
+const TAB_ORDER: NavigationTab[] = ['HOME', 'COLLECTION', 'CHALLENGE', 'SETTINGS'];
+
+const tabVariants = {
+  enter: (direction: number) => ({
+    x: direction > 0 ? 45 : direction < 0 ? -45 : 0,
+    opacity: 0,
+    scale: 0.98
+  }),
+  center: {
+    x: 0,
+    opacity: 1,
+    scale: 1,
+    transition: {
+      x: { type: 'spring', stiffness: 320, damping: 28 },
+      opacity: { duration: 0.2 },
+      scale: { type: 'spring', stiffness: 320, damping: 28 }
+    }
+  },
+  exit: (direction: number) => ({
+    x: direction > 0 ? -35 : direction < 0 ? 35 : 0,
+    opacity: 0,
+    scale: 0.98,
+    transition: {
+      duration: 0.16,
+      ease: 'easeInOut'
+    }
+  })
+};
 
 export default function App() {
   // Navigation & Game State
   const [activeTab, setActiveTab] = useState<NavigationTab>('HOME');
+  const [tabDirection, setTabDirection] = useState<number>(0);
   const [gameState, setGameState] = useState<GameState>('MAIN_MENU');
   
   // Persistent Progress & Settings
@@ -50,30 +79,13 @@ export default function App() {
   const [isLevelCompleting, setIsLevelCompleting] = useState<boolean>(false);
 
   // Modals & Drawers
+  const [isRewardedAdOpen, setIsRewardedAdOpen] = useState(false);
+  const [isInterstitialAdOpen, setIsInterstitialAdOpen] = useState(false);
+  const [milestoneAdLevel, setMilestoneAdLevel] = useState<number>(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedWordForInfo, setSelectedWordForInfo] = useState<PlacedWord | null>(null);
   const [hintStartCell, setHintStartCell] = useState<{ row: number; col: number } | null>(null);
   const [showTutorial, setShowTutorial] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isWorldJourneyOpen, setIsWorldJourneyOpen] = useState(false);
-  const [showRateUsModal, setShowRateUsModal] = useState(false);
-
-  const toggleFullscreen = () => {
-    soundManager.playTap();
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
-    } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
-    }
-  };
-
-  useEffect(() => {
-    const handleFsChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', handleFsChange);
-    return () => document.removeEventListener('fullscreenchange', handleFsChange);
-  }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -251,146 +263,87 @@ export default function App() {
     return true;
   }, [puzzleWords]);
 
-  // Main direct Hint Button handler (Exactly 1 Hint per level)
+  // Main direct Hint Button handler (Gameplay Screen Header)
   const handleMainHintTap = useCallback(() => {
     const unfoundWords = puzzleWords.filter(w => !w.found);
     if (unfoundWords.length === 0) return;
 
-    if (hintsUsedInLevel >= 1) {
-      soundManager.playWordFail();
-      showToast('Only 1 hint allowed per level!');
+    const purchasedLetter = (progress.purchasedHints || 0) + (progress.hintsRevealLetter || 0);
+
+    // 1. USE PURCHASED HINT IF AVAILABLE
+    if (purchasedLetter > 0) {
+      setProgress(p => {
+        let newPurchased = p.purchasedHints || 0;
+        let newLetter = p.hintsRevealLetter || 0;
+        if (newPurchased > 0) {
+          newPurchased -= 1;
+        } else if (newLetter > 0) {
+          newLetter -= 1;
+        }
+        return {
+          ...p,
+          purchasedHints: newPurchased,
+          hintsRevealLetter: newLetter,
+          stats: { ...p.stats, hintsUsed: p.stats.hintsUsed + 1 }
+        };
+      });
+      applyLetterHintHighlight();
+      showToast('Purchased Hint Applied');
       return;
     }
 
+    // 2. WATCH GOOGLE REWARDED AD FOR HINT
+    if (!adService.checkIsAdAvailable()) {
+      showToast('Ad unavailable. Please try again.');
+      return;
+    }
+
+    setIsRewardedAdOpen(true);
+  }, [puzzleWords, progress, applyLetterHintHighlight]);
+
+  // Handle Rewarded Ad completion
+  const handleRewardedAdReward = useCallback(() => {
+    // Reward exactly 1 hint and immediately apply it to gameplay
     setProgress(p => ({
       ...p,
       stats: { ...p.stats, hintsUsed: p.stats.hintsUsed + 1 }
     }));
     applyLetterHintHighlight();
-    showToast('Hint Revealed! (1/1 used)');
-  }, [puzzleWords, hintsUsedInLevel, applyLetterHintHighlight]);
+    showToast('Hint Unlocked from Ad & Applied!');
+  }, [applyLetterHintHighlight]);
 
-  const handleRateUsSubmit = useCallback((stars: number) => {
-    setProgress(p => ({
-      ...p,
-      hasRated: true,
-      hintsRevealLetter: p.hintsRevealLetter + 1,
-    }));
-    setShowRateUsModal(false);
-    showToast(`Thank you for rating ${stars} stars! +1 Free Hint unlocked!`);
-    try {
-      window.open('ms-windows-store://review/?ProductId=9WZDNCRFJBMP', '_blank');
-    } catch {}
-    startLevel(progress.currentLevel);
-  }, [progress.currentLevel, startLevel]);
-
-  const handleNextLevel = useCallback(() => {
-    // Check if Level 10 was just completed and user hasn't been prompted to rate yet
-    if (currentPuzzle?.levelNumber === 10 && !progress.hasRated) {
-      setShowRateUsModal(true);
-      return;
+  // Handle Rewarded Ad cancellation or failure
+  const handleRewardedAdCancel = useCallback((reason?: string) => {
+    if (reason) {
+      showToast(reason);
+    } else {
+      showToast('Ad unavailable. Please try again.');
     }
+  }, []);
 
+  const handleNextLevel = () => {
     if (activeChallenge) {
       setGameState('MAIN_MENU');
       setActiveTab('CHALLENGE');
-    } else {
-      startLevel(progress.currentLevel);
+      return;
     }
-  }, [activeChallenge, progress.currentLevel, progress.hasRated, currentPuzzle, startLevel]);
 
-  // Global Keyboard Shortcuts (Laptop / Desktop Gamepad Experience)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore when user interacts with form inputs
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
-        return;
-      }
+    const completedLvl = currentPuzzle?.levelNumber || (progress.currentLevel - 1);
 
-      // 1. Fullscreen Toggle [F]
-      if (e.code === 'KeyF') {
-        e.preventDefault();
-        toggleFullscreen();
-        return;
-      }
+    // Show Google Interstitial Ad: Level 10, then every 6 levels (16, 22, 28, 34, ...)
+    if (adService.shouldShowLevelMilestoneAd(completedLvl, progress.hasRemovedAds)) {
+      setMilestoneAdLevel(completedLvl);
+      setIsInterstitialAdOpen(true);
+      return;
+    }
 
-      // 2. Sound Quick-Mute Toggle [M]
-      if (e.code === 'KeyM') {
-        e.preventDefault();
-        setSettings(s => ({ ...s, soundEnabled: !s.soundEnabled }));
-        soundManager.playTap();
-        return;
-      }
+    startLevel(progress.currentLevel);
+  };
 
-      // 3. Pause / Back Navigation [Escape]
-      if (e.code === 'Escape') {
-        e.preventDefault();
-        if (selectedWordForInfo) {
-          setSelectedWordForInfo(null);
-          return;
-        }
-        if (isWorldJourneyOpen) {
-          setIsWorldJourneyOpen(false);
-          return;
-        }
-        if (gameState === 'PLAYING' || gameState === 'CHALLENGE_PLAYING') {
-          soundManager.playTap();
-          setGameState('PAUSED');
-          return;
-        }
-        if (gameState === 'PAUSED') {
-          soundManager.playTap();
-          setGameState(activeChallenge ? 'CHALLENGE_PLAYING' : 'PLAYING');
-          return;
-        }
-      }
-
-      // 4. In-Game Hint [H]
-      if (e.code === 'KeyH') {
-        if (gameState === 'PLAYING' || gameState === 'CHALLENGE_PLAYING') {
-          e.preventDefault();
-          handleMainHintTap();
-          return;
-        }
-      }
-
-      // 5. Play / Next / Resume [Enter] or [Space]
-      if (e.code === 'Enter' || e.code === 'Space') {
-        if (gameState === 'LEVEL_COMPLETE') {
-          e.preventDefault();
-          soundManager.playTap();
-          handleNextLevel();
-          return;
-        }
-        if (gameState === 'PAUSED') {
-          e.preventDefault();
-          soundManager.playTap();
-          setGameState(activeChallenge ? 'CHALLENGE_PLAYING' : 'PLAYING');
-          return;
-        }
-        if (gameState === 'MAIN_MENU' && activeTab === 'HOME' && !isWorldJourneyOpen && !showTutorial) {
-          e.preventDefault();
-          soundManager.playTap();
-          startLevel(progress.currentLevel);
-          return;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    gameState,
-    activeTab,
-    isWorldJourneyOpen,
-    showTutorial,
-    selectedWordForInfo,
-    activeChallenge,
-    progress.currentLevel,
-    handleMainHintTap,
-    handleNextLevel,
-    startLevel
-  ]);
+  const handleInterstitialAdClose = () => {
+    setIsInterstitialAdOpen(false);
+    startLevel(progress.currentLevel);
+  };
 
   const handleClaimAchievement = (achId: string, rewardHints: number) => {
     setProgress(p => ({
@@ -402,18 +355,22 @@ export default function App() {
     }));
   };
 
-  // Exactly 1 Hint per level rule:
-  const hintsRemaining = Math.max(0, 1 - hintsUsedInLevel);
-  const foundWordsCount = puzzleWords.filter(w => w.found).length;
+  const handleSelectTab = (newTab: NavigationTab) => {
+    if (newTab === activeTab) return;
+    const fromIndex = TAB_ORDER.indexOf(activeTab);
+    const toIndex = TAB_ORDER.indexOf(newTab);
+    setTabDirection(toIndex > fromIndex ? 1 : -1);
+    setActiveTab(newTab);
+  };
+
+  const freeHintsRemaining = Math.max(0, 5 - (progress.freeHintsUsed || 0));
+  const purchasedLetterHints = (progress.purchasedHints || 0) + (progress.hintsRevealLetter || 0);
 
   const currentWorld = getWorldForLevel(currentPuzzle?.levelNumber || progress.currentLevel);
 
   return (
-    <div className="w-full min-h-screen h-screen bg-gradient-to-b from-slate-50 via-white to-blue-50/40 text-slate-900 flex flex-col items-center justify-start overflow-hidden font-sans select-none relative">
-      {/* 🎮 GLOBAL FULL-SCREEN ANIMATED GAME BACKGROUND */}
-      <GameBackground mode={gameState === 'PLAYING' || gameState === 'CHALLENGE_PLAYING' ? 'gameplay' : 'home'} />
-
-      <div className="w-full h-full min-h-screen max-w-none bg-transparent flex flex-col relative overflow-hidden z-10">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-start overflow-x-hidden font-sans select-none">
+      <div className="w-full max-w-[440px] min-h-screen bg-white shadow-xl flex flex-col relative">
         
         {/* Toast Feedback Notification Banner */}
         <AnimatePresence>
@@ -432,113 +389,23 @@ export default function App() {
 
         {/* 1. Main Navigation Screens (When Game State is MAIN_MENU) */}
         {gameState === 'MAIN_MENU' && (
-          <div className="w-full flex-1 flex flex-col overflow-y-auto">
-            {/* Desktop Top Navigation Bar (Visible on laptop/desktop screens) */}
-            <header className="hidden md:flex items-center justify-between px-8 py-3.5 border-b border-slate-100 bg-white/90 backdrop-blur-md sticky top-0 z-30 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-xs shadow-md shadow-blue-500/25 border border-blue-400/40">
-                  WH
-                </div>
-                <div>
-                  <span className="font-black text-base lg:text-lg text-slate-900 tracking-wider">WORD HUNT</span>
-                  <span className="text-[10px] block font-bold text-slate-400 uppercase tracking-widest -mt-0.5">Windows Edition</span>
-                </div>
-              </div>
-
-              {/* Center Tab Navigation Pills */}
-              <div className="flex items-center bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/60">
-                {[
-                  { id: 'HOME', label: 'Home', icon: Home },
-                  { id: 'COLLECTION', label: 'Collection', icon: Compass },
-                  { id: 'CHALLENGE', label: 'Challenge', icon: Swords },
-                  { id: 'SETTINGS', label: 'Settings', icon: SettingsIcon }
-                ].map(tab => {
-                  const isSelected = activeTab === tab.id;
-                  const Icon = tab.icon;
-                  return (
-                    <button
-                      key={`desktop-tab-${tab.id}`}
-                      onClick={() => {
-                        soundManager.playTap();
-                        setActiveTab(tab.id as NavigationTab);
-                      }}
-                      className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-white text-blue-600 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
-                      }`}
-                    >
-                      <Icon className={`w-4 h-4 ${isSelected ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
-                      <span>{tab.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Right Side Stats, Fullscreen & Sound Quick-Toggle */}
-              <div className="flex items-center gap-2.5">
-                <button
-                  onClick={() => {
-                    soundManager.playTap();
-                    setIsWorldJourneyOpen(true);
-                  }}
-                  className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer border border-slate-200/60"
-                  title="Open World Map & Level Selector"
-                >
-                  <Compass className="w-4 h-4 text-blue-600" />
-                  <span>World Map</span>
-                </button>
-
-                <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-black shadow-2xs">
-                  <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                  <span>{progress.totalStars}</span>
-                </div>
-
-                <button
-                  onClick={toggleFullscreen}
-                  className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
-                  title={isFullscreen ? 'Exit Full Screen [F]' : 'Full Screen [F]'}
-                >
-                  {isFullscreen ? <Minimize2 className="w-4 h-4 text-blue-600" /> : <Maximize2 className="w-4 h-4 text-slate-700" />}
-                </button>
-
-                <button
-                  onClick={() => {
-                    soundManager.playTap();
-                    setSettings(s => ({ ...s, soundEnabled: !s.soundEnabled }));
-                  }}
-                  className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
-                  title={settings.soundEnabled ? 'Mute Sound [M]' : 'Enable Sound [M]'}
-                >
-                  {settings.soundEnabled ? <Volume2 className="w-4 h-4 text-blue-600" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
-                </button>
-              </div>
-            </header>
-
-            <AnimatePresence mode="wait">
+          <div className="w-full flex-1 flex flex-col overflow-hidden">
+            <AnimatePresence mode="wait" custom={tabDirection}>
               {/* Tab 1: HOME */}
               {activeTab === 'HOME' && (
                 <motion.div
                   key="tab-home"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className="flex-1 flex flex-col"
+                  custom={tabDirection}
+                  variants={tabVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  className="flex-1 w-full"
                 >
                   <HomeScreen
                     currentLevel={progress.currentLevel}
-                    totalStars={progress.totalStars}
                     language={settings.language}
                     onPlay={() => startLevel(progress.currentLevel)}
-                    onNavigateTab={tab => {
-                      if (tab === 'JOURNEY') {
-                        setIsWorldJourneyOpen(true);
-                      } else {
-                        setActiveTab(tab);
-                      }
-                    }}
-                    onOpenJourney={() => setIsWorldJourneyOpen(true)}
                   />
                 </motion.div>
               )}
@@ -547,11 +414,12 @@ export default function App() {
               {activeTab === 'COLLECTION' && (
                 <motion.div
                   key="tab-collection"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className="flex-1 flex flex-col"
+                  custom={tabDirection}
+                  variants={tabVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  className="flex-1 w-full"
                 >
                   <CollectionScreen
                     progress={progress}
@@ -565,11 +433,12 @@ export default function App() {
               {activeTab === 'CHALLENGE' && (
                 <motion.div
                   key="tab-challenge"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className="flex-1 flex flex-col"
+                  custom={tabDirection}
+                  variants={tabVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  className="flex-1 w-full"
                 >
                   <ChallengeScreen
                     progress={progress}
@@ -583,11 +452,12 @@ export default function App() {
               {activeTab === 'SETTINGS' && (
                 <motion.div
                   key="tab-settings"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className="flex-1 flex flex-col"
+                  custom={tabDirection}
+                  variants={tabVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  className="flex-1 w-full"
                 >
                   <SettingsScreen
                     settings={settings}
@@ -603,16 +473,17 @@ export default function App() {
                         }
                       }
                     }}
+                    onRemoveAds={() => setProgress(p => ({ ...p, hasRemovedAds: true }))}
                   />
                 </motion.div>
               )}
             </AnimatePresence>
 
-            {/* Persistent 4-Tab Bottom Navigation Bar (Mobile only) */}
+            {/* Persistent 4-Tab Bottom Navigation Bar */}
             <BottomNav
               activeTab={activeTab}
               language={settings.language}
-              onSelectTab={tab => setActiveTab(tab)}
+              onSelectTab={handleSelectTab}
             />
           </div>
         )}
@@ -623,191 +494,56 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="w-full h-screen min-h-screen flex flex-col justify-between relative overflow-hidden bg-transparent"
+            className="w-full min-h-screen bg-white flex flex-col justify-between p-2 pb-6 relative overflow-hidden"
           >
-            {/* Subtle Floating World Ambient Particles (Atmospheric video game polish) */}
-            <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-              {currentWorld.bgDecorations.map((deco, idx) => (
-                <motion.div
-                  key={`bg-deco-${idx}`}
-                  initial={{ opacity: 0 }}
-                  animate={{
-                    opacity: [0.15, 0.4, 0.15],
-                    y: [0, -18, 0],
-                    rotate: [0, idx % 2 === 0 ? 12 : -12, 0]
-                  }}
-                  transition={{
-                    duration: 5 + idx,
-                    repeat: Infinity,
-                    ease: 'easeInOut',
-                    delay: idx * 0.4
-                  }}
-                  className="absolute select-none text-2xl lg:text-3xl filter blur-[0.4px]"
-                  style={{
-                    top: `${10 + idx * 17}%`,
-                    left: idx % 2 === 0 ? `${3 + idx * 2.5}%` : undefined,
-                    right: idx % 2 !== 0 ? `${3 + idx * 2.5}%` : undefined
-                  }}
-                >
-                  {deco}
-                </motion.div>
-              ))}
-            </div>
-
-            {/* Top Header with direct Hint button, Sound toggle, and Fullscreen toggle */}
-            <TopHeader
-              levelNumber={currentPuzzle.levelNumber}
-              themeName={activeChallenge ? activeChallenge.title : currentPuzzle.theme}
-              worldName={currentWorld.name}
-              starsCount={progress.totalStars}
-              hintsRemaining={hintsRemaining}
-              language={settings.language}
-              isDaily={!!activeChallenge}
-              isFullscreen={isFullscreen}
-              soundEnabled={settings.soundEnabled}
-              onBack={() => setGameState('MAIN_MENU')}
-              onUseHint={handleMainHintTap}
-              onPause={() => setGameState('PAUSED')}
-              onToggleFullscreen={toggleFullscreen}
-              onToggleSound={() => {
-                soundManager.playTap();
-                setSettings(s => ({ ...s, soundEnabled: !s.soundEnabled }));
-              }}
-              onOpenWorldMap={() => setIsWorldJourneyOpen(true)}
+            {/* Theme-based Animated Dynamic Background */}
+            <AnimatedThemeBackground 
+              world={currentWorld} 
+              levelNumber={currentPuzzle.levelNumber} 
             />
 
-            {/* Mobile Viewport Gameplay Layout (< md screens) */}
-            <div className="flex md:hidden flex-col justify-between flex-1 my-auto p-2 pb-6 z-10">
-              <main className="my-auto">
-                <LetterGrid
-                  key={`grid-m-${currentPuzzle.levelNumber}-${activeChallenge?.id || 'std'}`}
-                  grid={currentPuzzle.grid}
-                  words={puzzleWords}
-                  onWordFound={handleWordFound}
-                  hintStartCell={hintStartCell}
-                  highContrast={settings.highContrast}
-                  isCompleting={isLevelCompleting}
-                />
-
-                {/* Target Words List */}
-                <WordList
-                  key={`words-m-${currentPuzzle.levelNumber}-${activeChallenge?.id || 'std'}`}
-                  words={puzzleWords}
-                  onSelectWordForInfo={w => setSelectedWordForInfo(w)}
-                  highContrast={settings.highContrast}
-                />
-              </main>
-
-              {/* Bottom Educational Hint Tip */}
-              <footer className="text-center pt-2">
-                <p className="text-[11px] font-bold text-slate-500">
-                  💡 Swipe letters to find words
-                </p>
-              </footer>
+            {/* Top Header with direct Hint button */}
+            <div className="relative z-10 w-full">
+              <TopHeader
+                levelNumber={currentPuzzle.levelNumber}
+                themeName={activeChallenge ? activeChallenge.title : currentPuzzle.theme}
+                starsCount={progress.totalStars}
+                freeHintsRemaining={freeHintsRemaining}
+                purchasedHints={purchasedLetterHints}
+                language={settings.language}
+                isDaily={!!activeChallenge}
+                onBack={() => setGameState('MAIN_MENU')}
+                onUseHint={handleMainHintTap}
+                onPause={() => setGameState('PAUSED')}
+              />
             </div>
 
-            {/* Laptop / Desktop Full Screen Gameplay Layout (Side-by-Side: Grid + Dashboard) */}
-            <div className="hidden md:flex flex-1 items-center justify-center gap-8 lg:gap-14 px-6 lg:px-12 py-3 overflow-hidden h-[calc(100vh-68px)] z-10">
-              {/* Left Column: Letter Grid Board */}
-              <div className="flex-1 flex items-center justify-center max-w-2xl h-full py-2">
-                <LetterGrid
-                  key={`grid-d-${currentPuzzle.levelNumber}-${activeChallenge?.id || 'std'}`}
-                  grid={currentPuzzle.grid}
-                  words={puzzleWords}
-                  onWordFound={handleWordFound}
-                  hintStartCell={hintStartCell}
-                  highContrast={settings.highContrast}
-                  isCompleting={isLevelCompleting}
-                />
-              </div>
+            {/* Center Letter Grid */}
+            <main className="my-auto relative z-10">
+              <LetterGrid
+                key={`grid-lvl-${currentPuzzle.levelNumber}-${currentPuzzle.seed || ''}`}
+                grid={currentPuzzle.grid}
+                words={puzzleWords}
+                onWordFound={handleWordFound}
+                hintStartCell={hintStartCell}
+                highContrast={settings.highContrast}
+                isCompleting={isLevelCompleting}
+              />
 
-              {/* Right Column: Executive Gameplay Sidebar Panel */}
-              <div className="w-[360px] lg:w-[420px] shrink-0 h-full max-h-[calc(100vh-88px)] flex flex-col justify-between space-y-3.5 py-1">
-                {/* Target Words Card */}
-                <div className="p-5 lg:p-6 rounded-3xl bg-white/95 backdrop-blur-xl border border-white/90 shadow-xl flex-1 flex flex-col min-h-0 space-y-3.5">
-                  <div className="flex items-center justify-between shrink-0">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse" />
-                      <span className="text-xs font-black uppercase tracking-wider text-slate-800">
-                        Target Words
-                      </span>
-                    </div>
-                    <span className="text-xs font-black text-blue-700 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 shadow-2xs">
-                      {foundWordsCount} / {puzzleWords.length} Found
-                    </span>
-                  </div>
+              {/* Target Words List */}
+              <WordList
+                words={puzzleWords}
+                onSelectWordForInfo={w => setSelectedWordForInfo(w)}
+                highContrast={settings.highContrast}
+              />
+            </main>
 
-                  {/* Animated Progress Bar */}
-                  <div className="space-y-1 shrink-0">
-                    <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5">
-                      <div 
-                        className="h-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 transition-all duration-400 rounded-full shadow-xs"
-                        style={{ width: `${(foundWordsCount / Math.max(1, puzzleWords.length)) * 100}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 px-0.5">
-                      <span>Progress</span>
-                      <span>{Math.round((foundWordsCount / Math.max(1, puzzleWords.length)) * 100)}%</span>
-                    </div>
-                  </div>
-
-                  {/* Word List rendered in sidebar card with full internal scroll */}
-                  <div className="flex-1 overflow-y-auto pr-1 min-h-0">
-                    <WordList
-                      key={`words-d-${currentPuzzle.levelNumber}-${activeChallenge?.id || 'std'}`}
-                      words={puzzleWords}
-                      onSelectWordForInfo={w => setSelectedWordForInfo(w)}
-                      highContrast={settings.highContrast}
-                      layoutMode="sidebar"
-                    />
-                  </div>
-                </div>
-
-                {/* Dedicated Hint & Action Control Box */}
-                <div className="p-4 rounded-3xl bg-white/95 backdrop-blur-xl border border-white/90 shadow-md flex flex-col gap-2.5 shrink-0">
-                  <button
-                    onClick={() => {
-                      soundManager.playTap();
-                      handleMainHintTap();
-                    }}
-                    disabled={hintsRemaining <= 0}
-                    className={`w-full py-3 px-4 rounded-2xl text-xs font-black border transition-all flex items-center justify-between shadow-sm cursor-pointer ${
-                      hintsRemaining > 0
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-blue-500/25 active:scale-[0.98]'
-                        : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed shadow-none'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Lightbulb className={`w-4 h-4 ${hintsRemaining > 0 ? 'fill-white text-white' : 'text-slate-400'}`} />
-                      <span>{hintsRemaining > 0 ? 'Reveal Word Hint (1 Available)' : 'Hint Used (1/1 Per Level)'}</span>
-                    </div>
-                    {hintsRemaining > 0 ? (
-                      <kbd className="text-[10px] font-mono bg-white/20 text-white px-2 py-0.5 rounded-lg">H</kbd>
-                    ) : (
-                      <span className="text-[10px] font-bold text-slate-400">Locked</span>
-                    )}
-                  </button>
-
-                  {/* Helper Guide & Shortcut Keys */}
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-bold">
-                    <span className="flex items-center gap-1.5 text-xs">
-                      <span>🖱️</span>
-                      <span>Drag to connect</span>
-                    </span>
-                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                      <span className="flex items-center gap-1">
-                        <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 font-mono">Esc</kbd>
-                        <span>Pause</span>
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 font-mono">F</kbd>
-                        <span>Full</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {/* Bottom Educational Hint Tip */}
+            <footer className="text-center pt-2 relative z-10">
+              <p className="text-[11px] font-bold text-slate-600/90 bg-white/60 backdrop-blur-xs py-1 px-3 rounded-full inline-block shadow-2xs">
+                💡 Swipe letters to find words
+              </p>
+            </footer>
           </motion.div>
         )}
 
@@ -831,7 +567,7 @@ export default function App() {
                   }}
                   className="w-full py-4 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-black text-sm shadow-md shadow-blue-500/20 transition-colors cursor-pointer"
                 >
-                  RESUME PLAYING (Space)
+                  RESUME PLAYING
                 </motion.button>
                 <motion.button
                   whileHover={{ scale: 1.02 }}
@@ -852,21 +588,30 @@ export default function App() {
         {/* 4. Simple Clean Level Complete Win Modal */}
         {gameState === 'LEVEL_COMPLETE' && currentPuzzle && (
           <LevelCompleteModal
-            starsAwarded={hintsUsedInLevel === 0 ? 3 : 2}
+            starsAwarded={hintsUsedInLevel >= 3 ? 1 : hintsUsedInLevel >= 1 ? 2 : 3}
             language={settings.language}
             onNextLevel={handleNextLevel}
           />
         )}
 
-        {/* 5. Rate Us Modal (Prompts upon completing Level 10) */}
-        <RateUsModal
-          isOpen={showRateUsModal}
-          onClose={() => {
-            setShowRateUsModal(false);
-            startLevel(progress.currentLevel);
-          }}
-          onRate={handleRateUsSubmit}
-        />
+        {/* 5. Rewarded Ad Modal (Hint) */}
+        {isRewardedAdOpen && (
+          <RewardedAdModal
+            language={settings.language}
+            onReward={handleRewardedAdReward}
+            onCancel={handleRewardedAdCancel}
+            onClose={() => setIsRewardedAdOpen(false)}
+          />
+        )}
+
+        {/* 6. Interstitial Ad Modal (Every 10 Levels) */}
+        {isInterstitialAdOpen && (
+          <InterstitialAdModal
+            completedLevel={milestoneAdLevel}
+            language={settings.language}
+            onClose={handleInterstitialAdClose}
+          />
+        )}
 
         {/* 7. Word Learning Drawer */}
         <WordDefinitionDrawer
@@ -882,20 +627,6 @@ export default function App() {
               startLevel(1);
             }}
           />
-        )}
-
-        {/* 9. World Journey Expeditions Level Browser Modal */}
-        {isWorldJourneyOpen && (
-          <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto">
-            <WorldJourney
-              progress={progress}
-              onSelectLevel={lvl => {
-                setIsWorldJourneyOpen(false);
-                startLevel(lvl);
-              }}
-              onBack={() => setIsWorldJourneyOpen(false)}
-            />
-          </div>
         )}
       </div>
     </div>
