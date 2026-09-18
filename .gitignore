@@ -4,8 +4,12 @@ node_modules/
 
 # Production builds
 dist/
+dist-electron/
 build/
+!build/icon.ico
+!build/icon.png
 coverage/
+*.exe
 
 # Environment
 .env
