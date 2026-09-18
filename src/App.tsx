@@ -31,6 +31,7 @@ import { InterstitialAdModal } from './components/InterstitialAdModal';
 import { WordDefinitionDrawer } from './components/WordDefinitionDrawer';
 import { TutorialOverlay } from './components/TutorialOverlay';
 import { AnimatedThemeBackground } from './components/AnimatedThemeBackground';
+import { DesktopHeader } from './components/DesktopHeader';
 
 const TAB_ORDER: NavigationTab[] = ['HOME', 'COLLECTION', 'CHALLENGE', 'SETTINGS'];
 
@@ -87,6 +88,25 @@ export default function App() {
   const [selectedWordForInfo, setSelectedWordForInfo] = useState<PlacedWord | null>(null);
   const [hintStartCell, setHintStartCell] = useState<{ row: number; col: number } | null>(null);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen().catch(() => {});
+      setIsFullscreen(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -364,14 +384,39 @@ export default function App() {
     setActiveTab(newTab);
   };
 
+  // Desktop & Laptop Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (gameState === 'PLAYING' || gameState === 'CHALLENGE_PLAYING') {
+          setGameState('PAUSED');
+        } else if (gameState === 'PAUSED') {
+          setGameState(activeChallenge ? 'CHALLENGE_PLAYING' : 'PLAYING');
+        }
+      }
+      if ((e.key === 'h' || e.key === 'H') && (gameState === 'PLAYING' || gameState === 'CHALLENGE_PLAYING')) {
+        handleMainHintTap();
+      }
+      if (e.key === 'm' || e.key === 'M') {
+        setSettings(s => ({ ...s, soundEnabled: !s.soundEnabled }));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [gameState, activeChallenge, handleMainHintTap]);
+
   const freeHintsRemaining = Math.max(0, 5 - (progress.freeHintsUsed || 0));
   const purchasedLetterHints = (progress.purchasedHints || 0) + (progress.hintsRevealLetter || 0);
 
   const currentWorld = getWorldForLevel(currentPuzzle?.levelNumber || progress.currentLevel);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-start overflow-x-hidden font-sans select-none">
-      <div className="w-full max-w-[440px] min-h-screen bg-white shadow-xl flex flex-col relative">
+    <div className="min-h-screen bg-slate-100/70 text-slate-900 flex flex-col items-center justify-center overflow-x-hidden font-sans select-none p-0 md:p-4 lg:p-6">
+      <div className={`w-full min-h-screen md:min-h-0 bg-white shadow-2xl flex flex-col relative transition-all duration-300 md:rounded-3xl md:border md:border-slate-200/80 md:overflow-hidden ${
+        gameState === 'MAIN_MENU'
+          ? 'max-w-md md:max-w-4xl lg:max-w-5xl xl:max-w-6xl'
+          : 'max-w-md md:max-w-5xl lg:max-w-6xl xl:max-w-7xl'
+      }`}>
         
         {/* Toast Feedback Notification Banner */}
         <AnimatePresence>
@@ -387,6 +432,20 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Desktop Header Navigation (Screens >= md) */}
+        {gameState === 'MAIN_MENU' && (
+          <DesktopHeader
+            activeTab={activeTab}
+            language={settings.language}
+            progress={progress}
+            settings={settings}
+            isFullscreen={isFullscreen}
+            onSelectTab={handleSelectTab}
+            onToggleSound={() => setSettings(s => ({ ...s, soundEnabled: !s.soundEnabled }))}
+            onToggleFullscreen={toggleFullscreen}
+          />
+        )}
 
         {/* 1. Main Navigation Screens (When Game State is MAIN_MENU) */}
         {gameState === 'MAIN_MENU' && (
@@ -495,54 +554,136 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="w-full min-h-screen bg-white flex flex-col justify-between p-2 pb-6 relative overflow-hidden"
+            className="w-full min-h-screen md:min-h-[85vh] bg-white flex flex-col justify-between p-2 md:p-6 pb-6 relative overflow-hidden"
           >
             {/* Theme-based Animated Dynamic Background */}
             <AnimatedThemeBackground 
               world={currentWorld} 
               levelNumber={currentPuzzle.levelNumber} 
+              variant="gameplay"
             />
 
-            {/* Top Header with direct Hint button */}
+            {/* Top Header with Full Controls */}
             <div className="relative z-10 w-full">
               <TopHeader
                 levelNumber={currentPuzzle.levelNumber}
                 themeName={activeChallenge ? activeChallenge.title : currentPuzzle.theme}
+                worldName={currentWorld.name}
                 starsCount={progress.totalStars}
-                freeHintsRemaining={freeHintsRemaining}
-                purchasedHints={purchasedLetterHints}
+                hintsRemaining={freeHintsRemaining + purchasedLetterHints}
                 language={settings.language}
                 isDaily={!!activeChallenge}
+                isFullscreen={isFullscreen}
+                soundEnabled={settings.soundEnabled}
                 onBack={() => setGameState('MAIN_MENU')}
                 onUseHint={handleMainHintTap}
                 onPause={() => setGameState('PAUSED')}
+                onToggleFullscreen={toggleFullscreen}
+                onToggleSound={() => setSettings(s => ({ ...s, soundEnabled: !s.soundEnabled }))}
               />
             </div>
 
-            {/* Center Letter Grid */}
-            <main className="my-auto relative z-10">
-              <LetterGrid
-                key={`grid-lvl-${currentPuzzle.levelNumber}-${currentPuzzle.seed || ''}`}
-                grid={currentPuzzle.grid}
-                words={puzzleWords}
-                onWordFound={handleWordFound}
-                hintStartCell={hintStartCell}
-                highContrast={settings.highContrast}
-                isCompleting={isLevelCompleting}
-              />
+            {/* Main Gameplay Arena */}
+            <main className="flex-1 w-full flex flex-col justify-center my-auto relative z-10 p-1 md:p-4">
+              {/* Mobile View: Vertical Stack (< md) */}
+              <div className="flex flex-col items-center gap-3 md:hidden">
+                <LetterGrid
+                  key={`grid-lvl-mobile-${currentPuzzle.levelNumber}-${currentPuzzle.seed || ''}`}
+                  grid={currentPuzzle.grid}
+                  words={puzzleWords}
+                  onWordFound={handleWordFound}
+                  hintStartCell={hintStartCell}
+                  highContrast={settings.highContrast}
+                  isCompleting={isLevelCompleting}
+                />
 
-              {/* Target Words List */}
-              <WordList
-                words={puzzleWords}
-                onSelectWordForInfo={w => setSelectedWordForInfo(w)}
-                highContrast={settings.highContrast}
-              />
+                <WordList
+                  words={puzzleWords}
+                  onSelectWordForInfo={w => setSelectedWordForInfo(w)}
+                  highContrast={settings.highContrast}
+                />
+              </div>
+
+              {/* Laptop & PC Screen View: Dual-Pane Command Center (>= md) */}
+              <div className="hidden md:flex flex-row items-center justify-center gap-8 lg:gap-12 w-full max-w-5xl mx-auto">
+                {/* Left Pane: Letter Grid */}
+                <div className="flex-1 flex flex-col items-center justify-center">
+                  <div className="w-full max-w-[480px] lg:max-w-[530px]">
+                    <LetterGrid
+                      key={`grid-lvl-desktop-${currentPuzzle.levelNumber}-${currentPuzzle.seed || ''}`}
+                      grid={currentPuzzle.grid}
+                      words={puzzleWords}
+                      onWordFound={handleWordFound}
+                      hintStartCell={hintStartCell}
+                      highContrast={settings.highContrast}
+                      isCompleting={isLevelCompleting}
+                    />
+                  </div>
+                </div>
+
+                {/* Right Pane: Words to Find & Missions Control Panel */}
+                <div className="w-80 lg:w-96 shrink-0 flex flex-col gap-4 bg-white/90 backdrop-blur-md rounded-3xl p-5 lg:p-6 border border-slate-200/90 shadow-xl">
+                  {/* Mission Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Word Mission</span>
+                      <h3 className="text-base font-black text-slate-900">Words To Find</h3>
+                    </div>
+                    <span className="px-3 py-1 rounded-full text-xs font-black bg-blue-50 text-blue-600 border border-blue-200/80">
+                      {puzzleWords.filter(w => w.found).length} / {puzzleWords.length}
+                    </span>
+                  </div>
+
+                  {/* Interactive Progress Bar */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px] font-bold text-slate-400">
+                      <span>Level Progress</span>
+                      <span>{Math.round((puzzleWords.filter(w => w.found).length / Math.max(1, puzzleWords.length)) * 100)}%</span>
+                    </div>
+                    <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200/50">
+                      <motion.div 
+                        className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 rounded-full"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(puzzleWords.filter(w => w.found).length / Math.max(1, puzzleWords.length)) * 100}%` }}
+                        transition={{ duration: 0.3 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Word List in Sidebar Mode */}
+                  <div className="max-h-[320px] overflow-y-auto pr-1">
+                    <WordList
+                      words={puzzleWords}
+                      onSelectWordForInfo={w => setSelectedWordForInfo(w)}
+                      highContrast={settings.highContrast}
+                      layoutMode="sidebar"
+                    />
+                  </div>
+
+                  {/* Desktop Hint Action Button & Shortcuts Helper */}
+                  <div className="pt-3 border-t border-slate-100 space-y-2.5">
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleMainHintTap}
+                      className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer transition-all"
+                    >
+                      <span className="text-base">💡</span>
+                      <span>Use Hint ({freeHintsRemaining + purchasedLetterHints} Available)</span>
+                    </motion.button>
+
+                    <div className="bg-slate-50 rounded-xl p-2 text-center text-[10px] text-slate-500 font-bold border border-slate-100">
+                      🖱️ Drag mouse to select • <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-700 font-mono">H</kbd> Hint • <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-700 font-mono">Esc</kbd> Pause
+                    </div>
+                  </div>
+                </div>
+              </div>
             </main>
 
             {/* Bottom Educational Hint Tip */}
             <footer className="text-center pt-2 relative z-10">
               <p className="text-[11px] font-bold text-slate-600/90 bg-white/60 backdrop-blur-xs py-1 px-3 rounded-full inline-block shadow-2xs">
-                💡 Swipe letters to find words
+                💡 Swipe or drag across letters to find words
               </p>
             </footer>
           </motion.div>
