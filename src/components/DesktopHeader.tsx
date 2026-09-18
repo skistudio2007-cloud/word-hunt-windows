@@ -32,8 +32,7 @@ export const DesktopHeader: React.FC<Props> = ({
   onToggleSound,
   onToggleFullscreen,
 }) => {
-  const freeHints = Math.max(0, 5 - (progress.freeHintsUsed || 0));
-  const totalHints = freeHints + (progress.purchasedHints || 0) + (progress.hintsRevealLetter || 0);
+  const bonusHints = (progress.purchasedHints || 0) + (progress.hintsRevealLetter || 0);
 
   return (
     <header className="hidden md:flex w-full items-center justify-between px-6 py-3 bg-white/90 backdrop-blur-xl border-b border-slate-200/80 sticky top-0 z-40 shadow-xs select-none">
@@ -99,10 +98,10 @@ export const DesktopHeader: React.FC<Props> = ({
           <span className="text-xs font-black">{progress.totalStars}</span>
         </div>
 
-        {/* Hints Badge */}
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-700 shadow-2xs">
+        {/* Hints Badge: 1 Free Hint Per Level */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-700 shadow-2xs" title="1 Free Hint available in every level!">
           <Lightbulb className="w-4 h-4 fill-blue-500 text-blue-600" />
-          <span className="text-xs font-black">{totalHints}</span>
+          <span className="text-xs font-black">1 Hint / Level{bonusHints > 0 ? ` (+${bonusHints})` : ''}</span>
         </div>
 
         {/* Level Tag */}

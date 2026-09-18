@@ -13,7 +13,6 @@ import {
 import { generatePuzzle, generateDailyPuzzle, generateChallengePuzzle } from './services/puzzleGenerator';
 import { StorageService, DEFAULT_PROGRESS, DEFAULT_SETTINGS } from './services/storage';
 import { soundManager } from './services/sound';
-import { adService } from './services/adService';
 import { getWorldForLevel } from './data/worlds';
 
 import { BottomNav } from './components/BottomNav';
@@ -26,8 +25,6 @@ import { TopHeader } from './components/TopHeader';
 import { LetterGrid } from './components/LetterGrid';
 import { WordList } from './components/WordList';
 import { LevelCompleteModal } from './components/LevelCompleteModal';
-import { RewardedAdModal } from './components/RewardedAdModal';
-import { InterstitialAdModal } from './components/InterstitialAdModal';
 import { WordDefinitionDrawer } from './components/WordDefinitionDrawer';
 import { TutorialOverlay } from './components/TutorialOverlay';
 import { AnimatedThemeBackground } from './components/AnimatedThemeBackground';
@@ -81,9 +78,6 @@ export default function App() {
   const [isLevelCompleting, setIsLevelCompleting] = useState<boolean>(false);
 
   // Modals & Drawers
-  const [isRewardedAdOpen, setIsRewardedAdOpen] = useState(false);
-  const [isInterstitialAdOpen, setIsInterstitialAdOpen] = useState(false);
-  const [milestoneAdLevel, setMilestoneAdLevel] = useState<number>(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedWordForInfo, setSelectedWordForInfo] = useState<PlacedWord | null>(null);
   const [hintStartCell, setHintStartCell] = useState<{ row: number; col: number } | null>(null);
@@ -284,15 +278,25 @@ export default function App() {
     return true;
   }, [puzzleWords]);
 
-  // Main direct Hint Button handler (Gameplay Screen Header)
+  // Main direct Hint Button handler: 1 Free Hint in every single level!
   const handleMainHintTap = useCallback(() => {
     const unfoundWords = puzzleWords.filter(w => !w.found);
     if (unfoundWords.length === 0) return;
 
-    const purchasedLetter = (progress.purchasedHints || 0) + (progress.hintsRevealLetter || 0);
+    // 1. Check if the 1 free hint for this level is still available
+    if (hintsUsedInLevel < 1) {
+      applyLetterHintHighlight();
+      setProgress(p => ({
+        ...p,
+        stats: { ...p.stats, hintsUsed: p.stats.hintsUsed + 1 }
+      }));
+      showToast('Level Hint Applied! (1 Free Hint per level)');
+      return;
+    }
 
-    // 1. USE PURCHASED HINT IF AVAILABLE
-    if (purchasedLetter > 0) {
+    // 2. If 1 level hint was used, check if player has any bonus inventory hints (from challenges/achievements)
+    const bonusHints = (progress.purchasedHints || 0) + (progress.hintsRevealLetter || 0);
+    if (bonusHints > 0) {
       setProgress(p => {
         let newPurchased = p.purchasedHints || 0;
         let newLetter = p.hintsRevealLetter || 0;
@@ -309,38 +313,13 @@ export default function App() {
         };
       });
       applyLetterHintHighlight();
-      showToast('Purchased Hint Applied');
+      showToast('Bonus Hint Applied!');
       return;
     }
 
-    // 2. WATCH GOOGLE REWARDED AD FOR HINT
-    if (!adService.checkIsAdAvailable()) {
-      showToast('Ad unavailable. Please try again.');
-      return;
-    }
-
-    setIsRewardedAdOpen(true);
-  }, [puzzleWords, progress, applyLetterHintHighlight]);
-
-  // Handle Rewarded Ad completion
-  const handleRewardedAdReward = useCallback(() => {
-    // Reward exactly 1 hint and immediately apply it to gameplay
-    setProgress(p => ({
-      ...p,
-      stats: { ...p.stats, hintsUsed: p.stats.hintsUsed + 1 }
-    }));
-    applyLetterHintHighlight();
-    showToast('Hint Unlocked from Ad & Applied!');
-  }, [applyLetterHintHighlight]);
-
-  // Handle Rewarded Ad cancellation or failure
-  const handleRewardedAdCancel = useCallback((reason?: string) => {
-    if (reason) {
-      showToast(reason);
-    } else {
-      showToast('Ad unavailable. Please try again.');
-    }
-  }, []);
+    // 3. Inform player that the level's 1 free hint is already used
+    showToast('1 Hint per level already used! Next level will have 1 new hint.');
+  }, [puzzleWords, hintsUsedInLevel, progress, applyLetterHintHighlight]);
 
   const handleNextLevel = () => {
     if (activeChallenge) {
@@ -349,20 +328,7 @@ export default function App() {
       return;
     }
 
-    const completedLvl = currentPuzzle?.levelNumber || (progress.currentLevel - 1);
-
-    // Show Google Interstitial Ad: Level 10, then every 6 levels (16, 22, 28, 34, ...)
-    if (adService.shouldShowLevelMilestoneAd(completedLvl, progress.hasRemovedAds)) {
-      setMilestoneAdLevel(completedLvl);
-      setIsInterstitialAdOpen(true);
-      return;
-    }
-
-    startLevel(progress.currentLevel);
-  };
-
-  const handleInterstitialAdClose = () => {
-    setIsInterstitialAdOpen(false);
+    // Instant next level transition without any ads
     startLevel(progress.currentLevel);
   };
 
@@ -405,8 +371,9 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [gameState, activeChallenge, handleMainHintTap]);
 
-  const freeHintsRemaining = Math.max(0, 5 - (progress.freeHintsUsed || 0));
-  const purchasedLetterHints = (progress.purchasedHints || 0) + (progress.hintsRevealLetter || 0);
+  const levelHintsRemaining = Math.max(0, 1 - hintsUsedInLevel);
+  const bonusInventoryHints = (progress.purchasedHints || 0) + (progress.hintsRevealLetter || 0);
+  const totalActiveHints = levelHintsRemaining + bonusInventoryHints;
 
   const currentWorld = getWorldForLevel(currentPuzzle?.levelNumber || progress.currentLevel);
 
@@ -570,7 +537,7 @@ export default function App() {
                 themeName={activeChallenge ? activeChallenge.title : currentPuzzle.theme}
                 worldName={currentWorld.name}
                 starsCount={progress.totalStars}
-                hintsRemaining={freeHintsRemaining + purchasedLetterHints}
+                hintsRemaining={totalActiveHints}
                 language={settings.language}
                 isDaily={!!activeChallenge}
                 isFullscreen={isFullscreen}
@@ -663,13 +630,18 @@ export default function App() {
                   {/* Desktop Hint Action Button & Shortcuts Helper */}
                   <div className="pt-3 border-t border-slate-100 space-y-2.5">
                     <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
+                      whileHover={totalActiveHints > 0 ? { scale: 1.02 } : undefined}
+                      whileTap={totalActiveHints > 0 ? { scale: 0.98 } : undefined}
                       onClick={handleMainHintTap}
-                      className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer transition-all"
+                      disabled={totalActiveHints === 0}
+                      className={`w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-2 transition-all ${
+                        totalActiveHints > 0
+                          ? 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white shadow-amber-500/20 cursor-pointer'
+                          : 'bg-slate-200 text-slate-400 shadow-none cursor-not-allowed'
+                      }`}
                     >
                       <span className="text-base">💡</span>
-                      <span>Use Hint ({freeHintsRemaining + purchasedLetterHints} Available)</span>
+                      <span>{totalActiveHints > 0 ? `Use Hint (${totalActiveHints} Available)` : 'Hint Used (1/1 for this level)'}</span>
                     </motion.button>
 
                     <div className="bg-slate-50 rounded-xl p-2 text-center text-[10px] text-slate-500 font-bold border border-slate-100">
@@ -736,26 +708,7 @@ export default function App() {
           />
         )}
 
-        {/* 5. Rewarded Ad Modal (Hint) */}
-        {isRewardedAdOpen && (
-          <RewardedAdModal
-            language={settings.language}
-            onReward={handleRewardedAdReward}
-            onCancel={handleRewardedAdCancel}
-            onClose={() => setIsRewardedAdOpen(false)}
-          />
-        )}
-
-        {/* 6. Interstitial Ad Modal (Every 10 Levels) */}
-        {isInterstitialAdOpen && (
-          <InterstitialAdModal
-            completedLevel={milestoneAdLevel}
-            language={settings.language}
-            onClose={handleInterstitialAdClose}
-          />
-        )}
-
-        {/* 7. Word Learning Drawer */}
+        {/* 5. Word Learning Drawer */}
         <WordDefinitionDrawer
           word={selectedWordForInfo}
           onClose={() => setSelectedWordForInfo(null)}
