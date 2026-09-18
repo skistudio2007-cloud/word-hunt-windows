@@ -30,6 +30,7 @@ import { RewardedAdModal } from './components/RewardedAdModal';
 import { InterstitialAdModal } from './components/InterstitialAdModal';
 import { WordDefinitionDrawer } from './components/WordDefinitionDrawer';
 import { TutorialOverlay } from './components/TutorialOverlay';
+import { AnimatedThemeBackground } from './components/AnimatedThemeBackground';
 
 const TAB_ORDER: NavigationTab[] = ['HOME', 'COLLECTION', 'CHALLENGE', 'SETTINGS'];
 

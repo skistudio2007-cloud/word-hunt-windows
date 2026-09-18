@@ -1,4 +1,4 @@
-﻿process.noAsar = true;
+process.noAsar = true;
 
 const builder = require('electron-builder');
 const Platform = builder.Platform;
@@ -6,7 +6,7 @@ const Platform = builder.Platform;
 console.log('Building portable single-file Windows executable...');
 
 builder.build({
-  targets: Platform.WINDOWS.createTarget(['portable']),
+  targets: Platform.WINDOWS.createTarget(['dir', 'portable']),
   config: {
     appId: 'com.wordhunt.windows',
     productName: 'Word Hunt',
@@ -23,7 +23,7 @@ builder.build({
       'package.json'
     ],
     win: {
-      target: ['portable'],
+      target: ['dir', 'portable'],
       icon: 'build/icon.ico'
     }
   }
