@@ -4,9 +4,26 @@ html, body {
   user-select: none;
   -webkit-user-select: none;
   -webkit-user-drag: none;
-  overflow: hidden;
-  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 100%;
   width: 100%;
+}
+
+/* Native smooth scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
 }
 
 @theme {

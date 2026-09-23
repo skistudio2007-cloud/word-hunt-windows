@@ -6,6 +6,7 @@ import { LanguageCode } from '../types';
 import { getTranslation } from '../services/localization';
 import { getWorldForLevel } from '../data/worlds';
 import { AnimatedThemeBackground } from './AnimatedThemeBackground';
+import appLogo from '../assets/app-icon.png';
 
 interface Props {
   currentLevel: number;
@@ -24,7 +25,7 @@ export const HomeScreen: React.FC<Props> = ({ currentLevel, language = 'en', onP
   const world = getWorldForLevel(currentLevel);
 
   return (
-    <div className="w-full min-h-[calc(100vh-70px)] bg-white flex flex-col items-center justify-between px-6 py-10 select-none relative overflow-hidden">
+    <div className="w-full min-h-[calc(100vh-70px)] bg-white flex flex-col items-center justify-between px-6 py-10 select-none relative overflow-y-auto overflow-x-hidden">
       {/* 0. Theme-based Animated Background */}
       <AnimatedThemeBackground 
         world={world} 
@@ -46,7 +47,7 @@ export const HomeScreen: React.FC<Props> = ({ currentLevel, language = 'en', onP
             className="relative"
           >
             <img
-              src="/app-icon.png"
+              src={appLogo}
               alt="Word Hunt Icon"
               className="w-24 h-24 rounded-3xl shadow-2xl shadow-indigo-500/30 border-2 border-white/90 object-cover"
             />

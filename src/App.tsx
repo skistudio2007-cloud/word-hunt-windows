@@ -416,7 +416,7 @@ export default function App() {
 
         {/* 1. Main Navigation Screens (When Game State is MAIN_MENU) */}
         {gameState === 'MAIN_MENU' && (
-          <div className="w-full flex-1 flex flex-col overflow-hidden">
+          <div className="w-full flex-1 flex flex-col overflow-y-auto">
             <AnimatePresence mode="wait" custom={tabDirection}>
               {/* Tab 1: HOME */}
               {activeTab === 'HOME' && (
@@ -521,7 +521,7 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="w-full min-h-screen md:min-h-[85vh] bg-white flex flex-col justify-between p-2 md:p-6 pb-6 relative overflow-hidden"
+            className="w-full min-h-screen md:min-h-[85vh] bg-white flex flex-col justify-between p-2 md:p-6 pb-6 relative overflow-y-auto overflow-x-hidden"
           >
             {/* Theme-based Animated Dynamic Background */}
             <AnimatedThemeBackground 

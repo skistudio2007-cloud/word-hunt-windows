@@ -3,6 +3,7 @@ import { Home, Compass, Swords, Settings, Star, Lightbulb, Volume2, VolumeX, Max
 import { NavigationTab, LanguageCode, UserProgress, UserSettings } from '../types';
 import { soundManager } from '../services/sound';
 import { getTranslation } from '../services/localization';
+import appLogo from '../assets/app-icon.png';
 
 interface Props {
   activeTab: NavigationTab;
@@ -40,7 +41,7 @@ export const DesktopHeader: React.FC<Props> = ({
       <div className="flex items-center gap-3">
         <div className="relative flex items-center justify-center">
           <img
-            src="/app-icon.png"
+            src={appLogo}
             alt="Word Hunt Logo"
             className="w-9 h-9 rounded-xl shadow-md border border-slate-200/80 object-cover"
           />
