@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+html, body {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+}
+
 @theme {
   --animate-fall-tile: fallTile 10s linear infinite;
   --animate-pulse-glow: pulseGlow 10s ease-in-out infinite;
